@@ -18,25 +18,43 @@ router.post(
   [body('email').isEmail().normalizeEmail()],
   async (req: Request, res: Response) => {
     try {
+      console.log('=== OTP Request Received ===')
+      console.log('Request body:', req.body)
+      
       const errors = validationResult(req)
       if (!errors.isEmpty()) {
+        console.log('Validation errors:', errors.array())
         return res.status(400).json({ errors: errors.array() })
       }
 
       const { email } = req.body
+      console.log('Checking employee with email:', email)
 
-      // Check if employee exists
+      // Check if employee exists and is active
       const employee = await Employee.findOne({ email, isActive: true })
       if (!employee) {
-        return res.status(404).json({ message: 'Employee not found or inactive' })
+        console.log('Employee not found or inactive for email:', email)
+        return res.status(404).json({ 
+          message: 'Employee not found or inactive. Please check your email address or contact your administrator.' 
+        })
       }
+
+      console.log('Employee found:', {
+        id: employee._id,
+        email: employee.email,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        isActive: employee.isActive
+      })
 
       // Generate OTP
       const otp = generateOTP()
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      console.log('Generated OTP:', otp, 'Expires at:', expiresAt)
 
       // Delete any existing OTPs for this email
       await OTP.deleteMany({ email })
+      console.log('Deleted existing OTPs for email:', email)
 
       // Save new OTP
       const otpRecord = new OTP({
@@ -45,20 +63,27 @@ router.post(
         expiresAt,
       })
       await otpRecord.save()
+      console.log('OTP saved to database')
 
       // Send OTP via email
+      console.log('Attempting to send OTP email to:', email)
       const emailSent = await sendOTPEmail(email, otp)
       if (!emailSent) {
+        console.error('Failed to send OTP email to:', email)
         await OTP.deleteOne({ email, otp })
-        return res.status(500).json({ message: 'Failed to send OTP email' })
+        return res.status(500).json({ 
+          message: 'Failed to send OTP email. Please check email configuration or try again later.' 
+        })
       }
 
+      console.log('OTP email sent successfully to:', email)
       res.json({
         message: 'OTP sent successfully to your email',
         expiresIn: 600, // 10 minutes in seconds
       })
     } catch (error: any) {
       console.error('Request OTP error:', error)
+      console.error('Error stack:', error.stack)
       res.status(500).json({ message: 'Server error', error: error.message })
     }
   }

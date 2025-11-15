@@ -34,6 +34,22 @@ app.use('/api/services', serviceRoutes)
 app.use('/api/operations', operationRoutes)
 app.use('/api/reports', reportRoutes)
 
+// Root API route
+app.get('/api', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'Hotel Management System API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      employeeAuth: {
+        requestOTP: 'POST /api/employee-auth/request-otp',
+        verifyOTP: 'POST /api/employee-auth/verify-otp'
+      }
+    }
+  })
+})
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running' })
@@ -48,8 +64,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   })
 })
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`)
+  console.log(`Server accessible at:`)
+  console.log(`  - http://localhost:${PORT}`)
+  console.log(`  - http://127.0.0.1:${PORT}`)
+  console.log(`  - http://192.168.8.163:${PORT} (Network IP)`)
+  console.log(`\nMake sure your mobile device is on the same WiFi network!`)
 })
 
 

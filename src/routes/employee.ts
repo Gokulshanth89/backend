@@ -4,6 +4,7 @@ import mongoose from 'mongoose'
 import { authenticate, authorize } from '../middleware/auth'
 import Employee from '../models/Employee'
 import { sendWelcomeEmail } from '../utils/emailService'
+import { validateCompanyExists } from '../utils/companyValidation'
 
 const router = express.Router()
 
@@ -119,6 +120,12 @@ router.post(
         return res.status(400).json({ errors: errors.array() })
       }
 
+      // Validate company exists
+      const companyValidation = await validateCompanyExists(req.body.company)
+      if (!companyValidation.valid) {
+        return res.status(400).json({ message: companyValidation.error })
+      }
+
       // Check if employee with this email already exists
       const existingEmployee = await Employee.findOne({ email: req.body.email })
       if (existingEmployee) {
@@ -178,6 +185,14 @@ router.put(
   authorize('admin', 'manager'),
   async (req: Request, res: Response) => {
     try {
+      // Validate company exists if company is being updated
+      if (req.body.company) {
+        const companyValidation = await validateCompanyExists(req.body.company)
+        if (!companyValidation.valid) {
+          return res.status(400).json({ message: companyValidation.error })
+        }
+      }
+
       // Check if email is being updated and if it already exists for another employee
       if (req.body.email) {
         const existingEmployee = await Employee.findOne({ 

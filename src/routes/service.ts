@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express'
 import { body, validationResult } from 'express-validator'
 import { authenticate, authorize } from '../middleware/auth'
 import Service from '../models/Service'
+import { validateCompanyExists } from '../utils/companyValidation'
 
 const router = express.Router()
 
@@ -49,6 +50,12 @@ router.post(
         return res.status(400).json({ errors: errors.array() })
       }
 
+      // Validate company exists
+      const companyValidation = await validateCompanyExists(req.body.company)
+      if (!companyValidation.valid) {
+        return res.status(400).json({ message: companyValidation.error })
+      }
+
       const service = new Service(req.body)
       await service.save()
       await service.populate('company', 'name')
@@ -66,6 +73,14 @@ router.put(
   authorize('admin', 'manager'),
   async (req: Request, res: Response) => {
     try {
+      // Validate company exists if company is being updated
+      if (req.body.company) {
+        const companyValidation = await validateCompanyExists(req.body.company)
+        if (!companyValidation.valid) {
+          return res.status(400).json({ message: companyValidation.error })
+        }
+      }
+
       const service = await Service.findByIdAndUpdate(
         req.params.id,
         req.body,
