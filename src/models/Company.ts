@@ -8,6 +8,7 @@ export interface ICompany extends Document {
   phone: string
   email: string
   description?: string
+  roomCount?: number
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -42,6 +43,11 @@ const CompanySchema = new Schema<ICompany>(
     },
     description: {
       type: String,
+    },
+    roomCount: {
+      type: Number,
+      min: 0,
+      default: 0,
     },
     isActive: {
       type: Boolean,

@@ -1,7 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose'
 
 export interface IOperation extends Document {
-  type: 'check-in' | 'check-out' | 'service-request' | 'maintenance' | 'other'
+  type: 'check-in' | 'check-out' | 'service-request' | 'maintenance' | 'welfare-check' | 'meal-marker' | 'food-image' | 'food-feedback' | 'other'
   description: string
   company: mongoose.Types.ObjectId
   employee?: mongoose.Types.ObjectId
@@ -31,7 +31,7 @@ const OperationSchema = new Schema<IOperation>(
   {
     type: {
       type: String,
-      enum: ['check-in', 'check-out', 'service-request', 'maintenance', 'other'],
+      enum: ['check-in', 'check-out', 'service-request', 'maintenance', 'welfare-check', 'meal-marker', 'food-image', 'food-feedback', 'other'],
       required: true,
     },
     description: {

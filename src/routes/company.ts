@@ -105,6 +105,7 @@ router.post(
     body('postcode').notEmpty().trim(),
     body('phone').notEmpty().trim(),
     body('email').isEmail().normalizeEmail(),
+    body('roomCount').optional().isInt({ min: 0 }).withMessage('Room count must be a non-negative integer'),
   ],
   async (req: Request, res: Response) => {
     try {

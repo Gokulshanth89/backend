@@ -2,7 +2,9 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
+import { createServer } from 'http'
 import connectDB from './config/database'
+import { initializeSocket } from './config/socket'
 import authRoutes from './routes/auth'
 import employeeAuthRoutes from './routes/employeeAuth'
 import companyRoutes from './routes/company'
@@ -10,15 +12,20 @@ import employeeRoutes from './routes/employee'
 import serviceRoutes from './routes/service'
 import operationRoutes from './routes/operation'
 import reportRoutes from './routes/report'
+import rotaRoutes from './routes/rota'
 
 // Load environment variables from backend/.env
 dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
 const app = express()
-const PORT = process.env.PORT || 5000
+const httpServer = createServer(app)
+const PORT = Number(process.env.PORT) || 5050
 
 // Connect to MongoDB
 connectDB()
+
+// Initialize Socket.io
+initializeSocket(httpServer)
 
 // Middleware
 app.use(cors())
@@ -33,6 +40,7 @@ app.use('/api/employees', employeeRoutes)
 app.use('/api/services', serviceRoutes)
 app.use('/api/operations', operationRoutes)
 app.use('/api/reports', reportRoutes)
+app.use('/api/rotas', rotaRoutes)
 
 // Root API route
 app.get('/api', (req, res) => {
@@ -64,13 +72,14 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   })
 })
 
-app.listen(PORT, '0.0.0.0', () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`)
   console.log(`Server accessible at:`)
   console.log(`  - http://localhost:${PORT}`)
   console.log(`  - http://127.0.0.1:${PORT}`)
   console.log(`  - http://192.168.8.163:${PORT} (Network IP)`)
-  console.log(`\nMake sure your mobile device is on the same WiFi network!`)
+  console.log(`\nSocket.io server initialized for real-time updates`)
+  console.log(`Make sure your mobile device is on the same WiFi network!`)
 })
 
 

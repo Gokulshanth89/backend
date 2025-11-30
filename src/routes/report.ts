@@ -416,10 +416,23 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
     const companyFilter = companyId ? { company: companyId } : {}
 
     const allOperations = await Operation.find({ ...dateFilter, ...companyFilter })
-      .populate('company', 'name')
-      .populate('employee', 'firstName lastName department')
+      .populate('company', 'name address city phone email')
+      .populate('employee', 'firstName lastName department role')
       .populate('assignedBy', 'firstName lastName')
       .lean()
+
+    // Get companies data if not filtered
+    let companies: any[] = []
+    if (!companyId) {
+      companies = await Company.find({ isActive: true })
+        .select('name address city phone email roomCount')
+        .lean()
+    } else {
+      const company = await Company.findById(companyId)
+        .select('name address city phone email roomCount')
+        .lean()
+      if (company) companies = [company]
+    }
 
     const checkIns = allOperations.filter((op: any) => op.type === 'check-in')
     const checkOuts = allOperations.filter((op: any) => op.type === 'check-out')
@@ -440,7 +453,7 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
     allOperations.forEach((op: any) => {
       if (op.roomNumber) uniqueRooms.add(op.roomNumber)
     })
-    const totalRooms = uniqueRooms.size || 100
+    const totalRooms = uniqueRooms.size || (companies[0]?.roomCount || 100)
     const occupancyRate = totalRooms > 0 ? Math.round((activeCheckIns.length / totalRooms) * 100) : 0
 
     // Department statistics
@@ -458,7 +471,7 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
       cancelled: allOperations.filter((op: any) => op.status === 'cancelled').length,
     }
 
-    // Employee performance
+    // Employee performance with detailed breakdown
     const employeePerformance: any = {}
     allOperations.forEach((op: any) => {
       if (op.employee) {
@@ -467,28 +480,63 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
           ? `${op.employee.firstName} ${op.employee.lastName}`
           : 'Unknown'
         const dept = op.employee.department || 'Unknown'
+        const role = op.employee.role || 'Unknown'
         
         if (!employeePerformance[empId]) {
           employeePerformance[empId] = {
             name: empName,
             department: dept,
+            role: role,
             total: 0,
             completed: 0,
+            pending: 0,
+            inProgress: 0,
+            checkIns: 0,
+            checkOuts: 0,
+            serviceRequests: 0,
+            maintenance: 0,
           }
         }
         employeePerformance[empId].total++
-        if (op.status === 'completed') {
-          employeePerformance[empId].completed++
-        }
+        if (op.status === 'completed') employeePerformance[empId].completed++
+        if (op.status === 'pending') employeePerformance[empId].pending++
+        if (op.status === 'in-progress') employeePerformance[empId].inProgress++
+        if (op.type === 'check-in') employeePerformance[empId].checkIns++
+        if (op.type === 'check-out') employeePerformance[empId].checkOuts++
+        if (op.type === 'service-request') employeePerformance[empId].serviceRequests++
+        if (op.type === 'maintenance') employeePerformance[empId].maintenance++
       }
     })
 
     const employeeStats = Object.values(employeePerformance).map((emp: any) => ({
       ...emp,
       completionRate: emp.total > 0 ? Math.round((emp.completed / emp.total) * 100) : 0,
-    })).sort((a: any, b: any) => b.completionRate - a.completionRate).slice(0, 10)
+    })).sort((a: any, b: any) => b.completionRate - a.completionRate)
 
-    // Company statistics
+    // Room statistics
+    const roomStats: any = {}
+    allOperations.forEach((op: any) => {
+      if (op.roomNumber) {
+        if (!roomStats[op.roomNumber]) {
+          roomStats[op.roomNumber] = {
+            roomNumber: op.roomNumber,
+            checkIns: 0,
+            checkOuts: 0,
+            serviceRequests: 0,
+            maintenance: 0,
+            totalOperations: 0,
+            company: op.company?.name || 'Unknown',
+          }
+        }
+        roomStats[op.roomNumber].totalOperations++
+        if (op.type === 'check-in') roomStats[op.roomNumber].checkIns++
+        if (op.type === 'check-out') roomStats[op.roomNumber].checkOuts++
+        if (op.type === 'service-request') roomStats[op.roomNumber].serviceRequests++
+        if (op.type === 'maintenance') roomStats[op.roomNumber].maintenance++
+      }
+    })
+
+    // Company statistics with detailed breakdown
     const companyStats: any = {}
     allOperations.forEach((op: any) => {
       const companyName = op.company?.name || 'Unknown'
@@ -498,109 +546,220 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
           checkOuts: 0,
           serviceRequests: 0,
           maintenance: 0,
+          totalOperations: 0,
+          employees: new Set(),
+          rooms: new Set(),
         }
       }
+      companyStats[companyName].totalOperations++
       if (op.type === 'check-in') companyStats[companyName].checkIns++
       if (op.type === 'check-out') companyStats[companyName].checkOuts++
       if (op.type === 'service-request') companyStats[companyName].serviceRequests++
       if (op.type === 'maintenance') companyStats[companyName].maintenance++
+      if (op.employee) companyStats[companyName].employees.add(op.employee._id?.toString() || op.employee.toString())
+      if (op.roomNumber) companyStats[companyName].rooms.add(op.roomNumber)
+    })
+
+    // Convert sets to counts
+    Object.keys(companyStats).forEach((companyName) => {
+      companyStats[companyName].employeeCount = companyStats[companyName].employees.size
+      companyStats[companyName].roomCount = companyStats[companyName].rooms.size
+      delete companyStats[companyName].employees
+      delete companyStats[companyName].rooms
     })
 
     // Generate PDF
-    const doc = new PDFDocument({ margin: 50 })
+    const doc = new PDFDocument({ margin: 50, size: 'A4' })
     
     // Set response headers
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="hotel-report-${Date.now()}.pdf"`)
+    const reportTypeLabel = reportType === 'daily' ? 'Daily' : reportType === 'weekly' ? 'Weekly' : reportType === 'monthly' ? 'Monthly' : 'Custom'
+    const filename = `hotel-report-${reportTypeLabel.toLowerCase()}-${Date.now()}.pdf`
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
     
     // Pipe PDF to response
     doc.pipe(res)
 
+    // Helper function to add page break if needed
+    const checkPageBreak = (requiredSpace: number = 100) => {
+      if (doc.y + requiredSpace > doc.page.height - 50) {
+        doc.addPage()
+      }
+    }
+
     // Header
-    doc.fontSize(24).text('Hotel Management System', { align: 'center' })
-    doc.moveDown()
-    doc.fontSize(18).text('Comprehensive Analytics Report', { align: 'center' })
+    doc.fontSize(24).font('Helvetica-Bold').text('Hotel Management System', { align: 'center' })
+    doc.moveDown(0.5)
+    doc.fontSize(18).font('Helvetica').text(`${reportTypeLabel} Analytics Report`, { align: 'center' })
     doc.moveDown()
     
     // Report period
     if (startDate && endDate) {
       doc.fontSize(12).text(
-        `Period: ${new Date(startDate as string).toLocaleDateString()} - ${new Date(endDate as string).toLocaleDateString()}`,
+        `Report Period: ${new Date(startDate as string).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} - ${new Date(endDate as string).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
         { align: 'center' }
       )
     } else {
-      doc.fontSize(12).text('Period: All Time', { align: 'center' })
+      doc.fontSize(12).text('Report Period: All Time', { align: 'center' })
     }
-    doc.moveDown(2)
+    if (companyId && companies.length > 0) {
+      doc.fontSize(11).text(`Company: ${companies[0].name}`, { align: 'center' })
+    }
+    doc.moveDown(1.5)
 
     // Summary Section
-    doc.fontSize(16).text('Summary Statistics', { underline: true })
+    checkPageBreak(150)
+    doc.fontSize(16).font('Helvetica-Bold').text('1. Executive Summary', { underline: true })
     doc.moveDown(0.5)
-    doc.fontSize(12)
-    doc.text(`Total Operations: ${allOperations.length}`)
-    doc.text(`Check-Ins: ${checkIns.length}`)
-    doc.text(`Check-Outs: ${checkOuts.length}`)
-    doc.text(`Service Requests: ${serviceRequests.length}`)
-    doc.text(`Maintenance Tasks: ${maintenance.length}`)
-    doc.text(`Active Check-Ins: ${activeCheckIns.length}`)
-    doc.text(`Occupancy Rate: ${occupancyRate}%`)
-    doc.text(`Total Rooms: ${totalRooms}`)
-    doc.moveDown()
+    doc.fontSize(12).font('Helvetica')
+    doc.text(`Total Operations: ${allOperations.length}`, { continued: false })
+    doc.text(`Check-Ins: ${checkIns.length}`, { continued: false })
+    doc.text(`Check-Outs: ${checkOuts.length}`, { continued: false })
+    doc.text(`Service Requests: ${serviceRequests.length}`, { continued: false })
+    doc.text(`Maintenance Tasks: ${maintenance.length}`, { continued: false })
+    doc.text(`Active Check-Ins: ${activeCheckIns.length}`, { continued: false })
+    doc.text(`Total Rooms Tracked: ${totalRooms}`, { continued: false })
+    doc.text(`Occupancy Rate: ${occupancyRate}%`, { continued: false })
+    doc.moveDown(1)
 
     // Status Breakdown
-    doc.fontSize(16).text('Status Breakdown', { underline: true })
+    checkPageBreak(100)
+    doc.fontSize(16).font('Helvetica-Bold').text('2. Status Breakdown', { underline: true })
     doc.moveDown(0.5)
-    doc.fontSize(12)
-    doc.text(`Pending: ${statusBreakdown.pending}`)
-    doc.text(`In Progress: ${statusBreakdown['in-progress']}`)
-    doc.text(`Completed: ${statusBreakdown.completed}`)
-    doc.text(`Cancelled: ${statusBreakdown.cancelled}`)
-    doc.moveDown()
+    doc.fontSize(12).font('Helvetica')
+    doc.text(`Pending Operations: ${statusBreakdown.pending}`, { continued: false })
+    doc.text(`In Progress: ${statusBreakdown['in-progress']}`, { continued: false })
+    doc.text(`Completed: ${statusBreakdown.completed}`, { continued: false })
+    doc.text(`Cancelled: ${statusBreakdown.cancelled}`, { continued: false })
+    const completionRate = allOperations.length > 0 
+      ? Math.round((statusBreakdown.completed / allOperations.length) * 100) 
+      : 0
+    doc.text(`Overall Completion Rate: ${completionRate}%`, { continued: false })
+    doc.moveDown(1)
 
     // Department Statistics
     if (Object.keys(departmentStats).length > 0) {
-      doc.fontSize(16).text('Department Statistics', { underline: true })
+      checkPageBreak(100)
+      doc.fontSize(16).font('Helvetica-Bold').text('3. Department Statistics', { underline: true })
       doc.moveDown(0.5)
-      doc.fontSize(12)
-      Object.entries(departmentStats).forEach(([dept, count]: [string, any]) => {
-        doc.text(`${dept.replace('-', ' ').toUpperCase()}: ${count} requests`)
-      })
-      doc.moveDown()
+      doc.fontSize(12).font('Helvetica')
+      Object.entries(departmentStats)
+        .sort(([, a]: [string, any], [, b]: [string, any]) => b - a)
+        .forEach(([dept, count]: [string, any]) => {
+          doc.text(`${dept.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}: ${count} service requests`)
+        })
+      doc.moveDown(1)
     }
 
     // Employee Performance
     if (employeeStats.length > 0) {
-      doc.fontSize(16).text('Top Employee Performance', { underline: true })
+      checkPageBreak(200)
+      doc.fontSize(16).font('Helvetica-Bold').text('4. Employee Performance Analysis', { underline: true })
       doc.moveDown(0.5)
-      doc.fontSize(12)
-      employeeStats.forEach((emp: any, index: number) => {
-        doc.text(`${index + 1}. ${emp.name} (${emp.department}) - ${emp.completionRate}% completion rate (${emp.completed}/${emp.total} tasks)`)
+      doc.fontSize(12).font('Helvetica')
+      
+      // Top performers
+      const topPerformers = employeeStats.slice(0, 10)
+      doc.fontSize(13).font('Helvetica-Bold').text('Top 10 Performers:', { continued: false })
+      doc.moveDown(0.3)
+      doc.fontSize(11).font('Helvetica')
+      topPerformers.forEach((emp: any, index: number) => {
+        checkPageBreak(30)
+        doc.text(`${index + 1}. ${emp.name}`, { continued: false })
+        doc.text(`   Department: ${emp.department} | Role: ${emp.role}`, { indent: 20, continued: false })
+        doc.text(`   Completion Rate: ${emp.completionRate}% (${emp.completed}/${emp.total} tasks)`, { indent: 20, continued: false })
+        doc.text(`   Breakdown: Check-Ins: ${emp.checkIns}, Check-Outs: ${emp.checkOuts}, Services: ${emp.serviceRequests}, Maintenance: ${emp.maintenance}`, { indent: 20, continued: false })
+        doc.moveDown(0.3)
       })
-      doc.moveDown()
+      doc.moveDown(0.5)
     }
 
     // Company Statistics
     if (Object.keys(companyStats).length > 0) {
-      doc.fontSize(16).text('Company Statistics', { underline: true })
+      checkPageBreak(300)
+      doc.fontSize(16).font('Helvetica-Bold').text('5. Company-Wise Analysis', { underline: true })
       doc.moveDown(0.5)
-      doc.fontSize(12)
-      Object.entries(companyStats).forEach(([company, stats]: [string, any]) => {
-        doc.text(`${company}:`)
-        doc.text(`  Check-Ins: ${stats.checkIns}`, { indent: 20 })
-        doc.text(`  Check-Outs: ${stats.checkOuts}`, { indent: 20 })
-        doc.text(`  Service Requests: ${stats.serviceRequests}`, { indent: 20 })
-        doc.text(`  Maintenance: ${stats.maintenance}`, { indent: 20 })
+      doc.fontSize(12).font('Helvetica')
+      
+      Object.entries(companyStats).forEach(([companyName, stats]: [string, any]) => {
+        checkPageBreak(150)
+        doc.fontSize(13).font('Helvetica-Bold').text(`${companyName}:`, { continued: false })
         doc.moveDown(0.3)
+        doc.fontSize(11).font('Helvetica')
+        doc.text(`  Total Operations: ${stats.totalOperations}`, { indent: 20, continued: false })
+        doc.text(`  Check-Ins: ${stats.checkIns}`, { indent: 20, continued: false })
+        doc.text(`  Check-Outs: ${stats.checkOuts}`, { indent: 20, continued: false })
+        doc.text(`  Service Requests: ${stats.serviceRequests}`, { indent: 20, continued: false })
+        doc.text(`  Maintenance Tasks: ${stats.maintenance}`, { indent: 20, continued: false })
+        doc.text(`  Active Employees: ${stats.employeeCount}`, { indent: 20, continued: false })
+        doc.text(`  Rooms with Activity: ${stats.roomCount}`, { indent: 20, continued: false })
+        doc.moveDown(0.5)
       })
+      doc.moveDown(0.5)
     }
 
+    // Room Statistics (Top 20 most active rooms)
+    if (Object.keys(roomStats).length > 0) {
+      checkPageBreak(300)
+      doc.fontSize(16).font('Helvetica-Bold').text('6. Room Activity Analysis', { underline: true })
+      doc.moveDown(0.5)
+      doc.fontSize(11).font('Helvetica')
+      doc.text('Top 20 Most Active Rooms:', { continued: false })
+      doc.moveDown(0.3)
+      
+      const sortedRooms = Object.values(roomStats)
+        .sort((a: any, b: any) => b.totalOperations - a.totalOperations)
+        .slice(0, 20)
+      
+      sortedRooms.forEach((room: any, index: number) => {
+        checkPageBreak(25)
+        doc.text(`${index + 1}. Room ${room.roomNumber} (${room.company}):`, { indent: 20, continued: false })
+        doc.text(`   Total Operations: ${room.totalOperations} | Check-Ins: ${room.checkIns} | Check-Outs: ${room.checkOuts} | Services: ${room.serviceRequests} | Maintenance: ${room.maintenance}`, { indent: 30, continued: false })
+        doc.moveDown(0.2)
+      })
+      doc.moveDown(0.5)
+    }
+
+    // Data Analysis Insights
+    checkPageBreak(200)
+    doc.fontSize(16).font('Helvetica-Bold').text('7. Key Insights & Analysis', { underline: true })
+    doc.moveDown(0.5)
+    doc.fontSize(11).font('Helvetica')
+    
+    const avgOperationsPerDay = startDate && endDate 
+      ? Math.round(allOperations.length / Math.max(1, Math.ceil((new Date(endDate as string).getTime() - new Date(startDate as string).getTime()) / (1000 * 60 * 60 * 24))))
+      : 0
+    
+    doc.text(`• Average Operations per Day: ${avgOperationsPerDay}`, { continued: false })
+    doc.text(`• Service Request to Maintenance Ratio: ${maintenance.length > 0 ? Math.round((serviceRequests.length / maintenance.length) * 10) / 10 : 'N/A'}:1`, { continued: false })
+    doc.text(`• Check-In to Check-Out Ratio: ${checkOuts.length > 0 ? Math.round((checkIns.length / checkOuts.length) * 10) / 10 : 'N/A'}:1`, { continued: false })
+    
+    if (employeeStats.length > 0) {
+      const avgCompletionRate = Math.round(
+        employeeStats.reduce((sum: number, emp: any) => sum + emp.completionRate, 0) / employeeStats.length
+      )
+      doc.text(`• Average Employee Completion Rate: ${avgCompletionRate}%`, { continued: false })
+    }
+    
+    if (Object.keys(companyStats).length > 1) {
+      const topCompany = Object.entries(companyStats)
+        .sort(([, a]: [string, any], [, b]: [string, any]) => b.totalOperations - a.totalOperations)[0]
+      doc.text(`• Most Active Company: ${topCompany[0]} (${topCompany[1].totalOperations} operations)`, { continued: false })
+    }
+    
+    doc.moveDown(1)
+
     // Footer
-    doc.fontSize(10)
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, { align: 'center' })
+    checkPageBreak(50)
+    doc.fontSize(10).font('Helvetica')
+    doc.text(`Report Generated: ${new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}`, { align: 'center' })
+    doc.moveDown(0.3)
+    doc.text('Hotel Management System - Comprehensive Analytics Report', { align: 'center' })
 
     // Finalize PDF
     doc.end()
   } catch (error: any) {
+    console.error('PDF Generation Error:', error)
     res.status(500).json({ message: 'Server error', error: error.message })
   }
 })

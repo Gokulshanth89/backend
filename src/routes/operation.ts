@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator'
 import { authenticate } from '../middleware/auth'
 import Operation from '../models/Operation'
 import { validateOperationCompanyRelationships, validateCompanyExists } from '../utils/companyValidation'
+import { getIO } from '../config/socket'
 
 const router = express.Router()
 
@@ -54,7 +55,7 @@ router.post(
   '/',
   authenticate,
   [
-    body('type').isIn(['check-in', 'check-out', 'service-request', 'maintenance', 'other']),
+    body('type').isIn(['check-in', 'check-out', 'service-request', 'maintenance', 'welfare-check', 'meal-marker', 'food-image', 'food-feedback', 'other']),
     body('description').notEmpty().trim(),
     body('company').notEmpty(),
     // Guest information validation (optional, but required for check-in/check-out)
@@ -124,6 +125,21 @@ router.post(
       await operation.populate('employee', 'firstName lastName')
       await operation.populate('assignedBy', 'firstName lastName')
       await operation.populate('service', 'name')
+      
+      // Emit Socket.io event for new operation
+      try {
+        const io = getIO()
+        io.emit('operation:created', operation)
+        if (operation.company) {
+          io.to(`company:${operation.company._id}`).emit('operation:created', operation)
+        }
+        if (operation.assignedToDepartment) {
+          io.to(`department:${operation.assignedToDepartment}`).emit('operation:created', operation)
+        }
+      } catch (error) {
+        console.error('Error emitting Socket.io event:', error)
+      }
+      
       res.status(201).json(operation)
     } catch (error: any) {
       res.status(500).json({ message: 'Server error', error: error.message })
@@ -168,6 +184,21 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     if (!operation) {
       return res.status(404).json({ message: 'Operation not found' })
     }
+    
+    // Emit Socket.io event for updated operation
+    try {
+      const io = getIO()
+      io.emit('operation:updated', operation)
+      if (operation.company) {
+        io.to(`company:${operation.company._id}`).emit('operation:updated', operation)
+      }
+      if (operation.assignedToDepartment) {
+        io.to(`department:${operation.assignedToDepartment}`).emit('operation:updated', operation)
+      }
+    } catch (error) {
+      console.error('Error emitting Socket.io event:', error)
+    }
+    
     res.json(operation)
   } catch (error: any) {
     res.status(500).json({ message: 'Server error', error: error.message })
@@ -177,10 +208,30 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
 // Delete operation
 router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const operation = await Operation.findByIdAndDelete(req.params.id)
+    const operation = await Operation.findById(req.params.id)
     if (!operation) {
       return res.status(404).json({ message: 'Operation not found' })
     }
+    
+    const companyId = operation.company?.toString()
+    const department = operation.assignedToDepartment
+    
+    await Operation.findByIdAndDelete(req.params.id)
+    
+    // Emit Socket.io event for deleted operation
+    try {
+      const io = getIO()
+      io.emit('operation:deleted', { id: req.params.id })
+      if (companyId) {
+        io.to(`company:${companyId}`).emit('operation:deleted', { id: req.params.id })
+      }
+      if (department) {
+        io.to(`department:${department}`).emit('operation:deleted', { id: req.params.id })
+      }
+    } catch (error) {
+      console.error('Error emitting Socket.io event:', error)
+    }
+    
     res.json({ message: 'Operation deleted successfully' })
   } catch (error: any) {
     res.status(500).json({ message: 'Server error', error: error.message })
