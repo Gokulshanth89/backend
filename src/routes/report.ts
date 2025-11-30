@@ -277,11 +277,12 @@ router.get('/analytics', authenticate, async (req: Request, res: Response) => {
 
     const companyFilter = companyId ? { company: companyId } : {}
 
-    // Get all operations
+    // Get all operations with food items populated
     const allOperations = await Operation.find({ ...dateFilter, ...companyFilter })
       .populate('company', 'name')
       .populate('employee', 'firstName lastName department')
       .populate('assignedBy', 'firstName lastName')
+      .populate('foodItems', 'name price category')
       .lean()
 
     // Calculate statistics
@@ -289,6 +290,9 @@ router.get('/analytics', authenticate, async (req: Request, res: Response) => {
     const checkOuts = allOperations.filter((op: any) => op.type === 'check-out')
     const serviceRequests = allOperations.filter((op: any) => op.type === 'service-request')
     const maintenance = allOperations.filter((op: any) => op.type === 'maintenance')
+    const foodBeverageOrders = allOperations.filter((op: any) => 
+      op.type === 'service-request' && op.assignedToDepartment === 'food-beverage'
+    )
 
     // Calculate occupancy rate
     const activeCheckIns = checkIns.filter((checkIn: any) => {
@@ -301,12 +305,33 @@ router.get('/analytics', authenticate, async (req: Request, res: Response) => {
       return !hasCheckOut
     })
 
-    // Get unique rooms
+    // Get unique rooms from operations
     const uniqueRooms = new Set<string>()
     allOperations.forEach((op: any) => {
       if (op.roomNumber) uniqueRooms.add(op.roomNumber)
     })
-    const totalRooms = uniqueRooms.size || 100 // Default to 100 if no rooms found
+    
+    // Also get total rooms from companies if available
+    let totalRooms = uniqueRooms.size
+    if (companyId) {
+      const company = await Company.findById(companyId).select('roomCount').lean()
+      if (company && (company as any).roomCount) {
+        totalRooms = Math.max(totalRooms, (company as any).roomCount)
+      }
+    } else {
+      // If no company filter, get total rooms from all companies
+      const companies = await Company.find({ isActive: true }).select('roomCount').lean()
+      const totalCompanyRooms = companies.reduce((sum: number, comp: any) => {
+        return sum + (comp.roomCount || 0)
+      }, 0)
+      totalRooms = Math.max(totalRooms, totalCompanyRooms)
+    }
+    
+    // Use unique rooms from operations if company room count is not available
+    if (totalRooms === 0) {
+      totalRooms = uniqueRooms.size || 1 // At least 1 to avoid division by zero
+    }
+    
     const occupancyRate = totalRooms > 0 ? Math.round((activeCheckIns.length / totalRooms) * 100) : 0
 
     // Department statistics
@@ -373,6 +398,110 @@ router.get('/analytics', authenticate, async (req: Request, res: Response) => {
       if (op.type === 'maintenance') companyStats[companyName].maintenance++
     })
 
+    // Guest Orders Analysis - Food Items ordered
+    const foodItemsAnalysis: any = {}
+    const guestOrders: any[] = []
+    
+    foodBeverageOrders.forEach((op: any) => {
+      const guestOrder = {
+        roomNumber: op.roomNumber || 'N/A',
+        guestName: op.guestName || 'Unknown',
+        orderDate: op.createdAt,
+        foodItems: op.foodItems || [],
+        totalItems: op.foodItems?.length || 0,
+        description: op.description,
+        status: op.status,
+      }
+      guestOrders.push(guestOrder)
+
+      // Analyze food items
+      if (op.foodItems && Array.isArray(op.foodItems)) {
+        op.foodItems.forEach((food: any) => {
+          const foodId = food._id?.toString() || food.toString()
+          const foodName = food.name || 'Unknown Food'
+          const foodCategory = food.category || 'other'
+          const foodPrice = food.price || 0
+
+          if (!foodItemsAnalysis[foodId]) {
+            foodItemsAnalysis[foodId] = {
+              id: foodId,
+              name: foodName,
+              category: foodCategory,
+              price: foodPrice,
+              orderCount: 0,
+              totalRevenue: 0,
+            }
+          }
+          foodItemsAnalysis[foodId].orderCount++
+          foodItemsAnalysis[foodId].totalRevenue += foodPrice
+        })
+      }
+    })
+
+    // Convert food items analysis to array and sort by order count
+    const topFoodItems = Object.values(foodItemsAnalysis)
+      .sort((a: any, b: any) => b.orderCount - a.orderCount)
+      .slice(0, 10)
+
+    // Service Count Breakdown
+    const serviceCountBreakdown: any = {
+      totalServices: serviceRequests.length,
+      byDepartment: {
+        'housekeeping': 0,
+        'food-beverage': 0,
+        'operations': 0,
+        'reception': 0,
+        'unassigned': 0,
+      },
+      byStatus: {
+        'pending': 0,
+        'in-progress': 0,
+        'completed': 0,
+        'cancelled': 0,
+      },
+      byType: {
+        'service-request': serviceRequests.length,
+        'maintenance': maintenance.length,
+        'welfare-check': allOperations.filter((op: any) => op.type === 'welfare-check').length,
+        'meal-marker': allOperations.filter((op: any) => op.type === 'meal-marker').length,
+        'food-image': allOperations.filter((op: any) => op.type === 'food-image').length,
+        'food-feedback': allOperations.filter((op: any) => op.type === 'food-feedback').length,
+      },
+    }
+
+    // Count services by department
+    serviceRequests.forEach((op: any) => {
+      const dept = op.assignedToDepartment || 'unassigned'
+      if (serviceCountBreakdown.byDepartment[dept] !== undefined) {
+        serviceCountBreakdown.byDepartment[dept]++
+      } else {
+        serviceCountBreakdown.byDepartment['unassigned']++
+      }
+    })
+
+    // Count services by status
+    serviceRequests.forEach((op: any) => {
+      const status = op.status || 'pending'
+      if (serviceCountBreakdown.byStatus[status] !== undefined) {
+        serviceCountBreakdown.byStatus[status]++
+      }
+    })
+
+    // Guest Orders Summary
+    const guestOrdersSummary = {
+      totalOrders: guestOrders.length,
+      totalFoodItemsOrdered: guestOrders.reduce((sum, order) => sum + order.totalItems, 0),
+      ordersByStatus: {
+        pending: guestOrders.filter((o: any) => o.status === 'pending').length,
+        'in-progress': guestOrders.filter((o: any) => o.status === 'in-progress').length,
+        completed: guestOrders.filter((o: any) => o.status === 'completed').length,
+        cancelled: guestOrders.filter((o: any) => o.status === 'cancelled').length,
+      },
+      averageItemsPerOrder: guestOrders.length > 0 
+        ? Math.round((guestOrders.reduce((sum, order) => sum + order.totalItems, 0) / guestOrders.length) * 100) / 100
+        : 0,
+    }
+
     res.json({
       period: {
         startDate: startDate || null,
@@ -392,6 +521,13 @@ router.get('/analytics', authenticate, async (req: Request, res: Response) => {
       departmentStats,
       employeePerformance: employeeStats,
       companyStats,
+      // New analytics data
+      guestOrders: {
+        summary: guestOrdersSummary,
+        orders: guestOrders.slice(0, 20), // Limit to 20 recent orders
+        topFoodItems,
+      },
+      serviceCountBreakdown,
       operations: allOperations.slice(0, 50), // Limit to 50 for response size
     })
   } catch (error: any) {

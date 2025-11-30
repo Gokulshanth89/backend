@@ -25,6 +25,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       .populate('employee', 'firstName lastName')
       .populate('assignedBy', 'firstName lastName')
       .populate('service', 'name')
+      .populate('foodItems', 'name description category imageUrl price')
       .sort({ createdAt: -1 })
       .limit(100)
 
@@ -41,6 +42,7 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
       .populate('company', 'name')
       .populate('employee', 'firstName lastName')
       .populate('service', 'name')
+      .populate('foodItems', 'name description category imageUrl price')
     if (!operation) {
       return res.status(404).json({ message: 'Operation not found' })
     }
@@ -125,6 +127,7 @@ router.post(
       await operation.populate('employee', 'firstName lastName')
       await operation.populate('assignedBy', 'firstName lastName')
       await operation.populate('service', 'name')
+      await operation.populate('foodItems', 'name description category imageUrl price')
       
       // Emit Socket.io event for new operation
       try {
@@ -181,6 +184,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
       .populate('employee', 'firstName lastName')
       .populate('assignedBy', 'firstName lastName')
       .populate('service', 'name')
+      .populate('foodItems', 'name description category imageUrl price')
     if (!operation) {
       return res.status(404).json({ message: 'Operation not found' })
     }

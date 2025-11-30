@@ -20,6 +20,8 @@ export interface IOperation extends Document {
   hotelFoodRequired?: boolean
   foodPreferences?: string
   specialRequests?: string
+  // Food items
+  foodItems?: mongoose.Types.ObjectId[] // Array of food item IDs
   // Task assignment
   assignedToDepartment?: string // 'housekeeping', 'food-beverage', 'operations', 'reception'
   assignedBy?: mongoose.Types.ObjectId // Reception employee who assigned the task
@@ -100,6 +102,12 @@ const OperationSchema = new Schema<IOperation>(
     specialRequests: {
       type: String,
       trim: true,
+    },
+    // Food items
+    foodItems: {
+      type: [Schema.Types.ObjectId],
+      ref: 'Food',
+      default: [],
     },
     // Task assignment
     assignedToDepartment: {

@@ -1,6 +1,7 @@
 import { Server as HttpServer } from 'http'
 import { Server as SocketIOServer, Socket } from 'socket.io'
 import jwt from 'jsonwebtoken'
+import globalConfig from './globalConfig'
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -15,7 +16,7 @@ let io: SocketIOServer | null = null
 export const initializeSocket = (httpServer: HttpServer) => {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      origin: globalConfig.frontendURL,
       methods: ['GET', 'POST'],
       credentials: true,
     },
@@ -30,7 +31,7 @@ export const initializeSocket = (httpServer: HttpServer) => {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as {
+      const decoded = jwt.verify(token, globalConfig.jwtSecret) as {
         id: string
         email: string
         role: string
@@ -77,4 +78,3 @@ export const getIO = (): SocketIOServer => {
   }
   return io
 }
-

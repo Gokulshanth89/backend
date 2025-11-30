@@ -1,10 +1,10 @@
 import mongoose from 'mongoose'
+import globalConfig from './globalConfig'
 
 const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/hotel_management'
-    
-    await mongoose.connect(mongoURI)
+    // Use global config for MongoDB URI (supports both MONGODB_URI and MONGO_URI env vars)
+    await mongoose.connect(globalConfig.mongodbURI)
     
     console.log('MongoDB Connected Successfully')
   } catch (error) {

@@ -117,8 +117,9 @@ router.post(
         return res.status(401).json({ message: 'OTP has expired' })
       }
 
-      // Find employee
+      // Find employee and populate company
       const employee = await Employee.findOne({ email, isActive: true })
+        .populate('company', 'name')
       if (!employee) {
         await OTP.deleteOne({ email, otp })
         return res.status(404).json({ message: 'Employee not found or inactive' })
@@ -141,6 +142,10 @@ router.post(
         }
       )
 
+      // Get company name
+      const companyName = (employee.company as any)?.name || null
+      const companyId = employee.company?.toString() || employee.company
+
       res.json({
         token,
         employee: {
@@ -150,7 +155,8 @@ router.post(
           lastName: employee.lastName,
           role: employee.role,
           department: employee.department,
-          company: employee.company,
+          company: companyId,
+          companyName: companyName,
         },
         message: 'Login successful',
       })
