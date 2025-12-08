@@ -13,6 +13,7 @@ import operationRoutes from './routes/operation'
 import reportRoutes from './routes/report'
 import rotaRoutes from './routes/rota'
 import foodRoutes from './routes/food'
+import roomRoutes from './routes/room'
 
 const app = express()
 const httpServer = createServer(app)
@@ -24,9 +25,41 @@ connectDB()
 initializeSocket(httpServer)
 
 // Middleware
+// CORS configuration - allow both frontend and mobile app requests
 app.use(cors({
-  origin: globalConfig.frontendURL,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) return callback(null, true)
+    
+    // Allow frontend URL
+    if (origin === globalConfig.frontendURL) {
+      return callback(null, true)
+    }
+    
+    // Allow any localhost or network IP requests (for mobile app development)
+    const allowedOrigins = [
+      globalConfig.frontendURL,
+      `http://localhost:${globalConfig.port}`,
+      `http://127.0.0.1:${globalConfig.port}`,
+      `http://${globalConfig.networkIP}:${globalConfig.port}`,
+      `http://192.168.8.163:${globalConfig.port}`,
+    ]
+    
+    // In development, allow all origins for mobile app testing
+    if (globalConfig.nodeEnv === 'development') {
+      return callback(null, true)
+    }
+    
+    // In production, check against allowed origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+    
+    callback(new Error('Not allowed by CORS'))
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
@@ -41,6 +74,7 @@ app.use('/api/operations', operationRoutes)
 app.use('/api/reports', reportRoutes)
 app.use('/api/rotas', rotaRoutes)
 app.use('/api/foods', foodRoutes)
+app.use('/api/rooms', roomRoutes)
 
 // Root API route
 app.get('/api', (req, res) => {

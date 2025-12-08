@@ -45,7 +45,7 @@ router.get('/:id/statistics', authenticate, async (req: Request, res: Response) 
     // Get unique room numbers
     const roomNumbers = await Operation.distinct('roomNumber', { 
       company: req.params.id,
-      roomNumber: { $exists: true, $ne: null, $ne: '' }
+      roomNumber: { $exists: true, $ne: null, $nin: [''] }
     })
 
     res.json({

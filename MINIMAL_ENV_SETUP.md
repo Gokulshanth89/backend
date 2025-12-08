@@ -8,7 +8,7 @@ Here's what you need at minimum:
 
 ```env
 PORT=5050
-MONGODB_URI=mongodb://localhost:27017/hotel_management
+
 JWT_SECRET=your-secret-key-change-this-in-production
 NODE_ENV=development
 ```
@@ -25,7 +25,7 @@ If you want to access the backend from other devices on your network:
 ```env
 PORT=5050
 NETWORK_IP=192.168.8.163
-MONGODB_URI=mongodb://localhost:27017/hotel_management
+
 JWT_SECRET=your-secret-key-change-this-in-production
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3000
@@ -35,7 +35,7 @@ FRONTEND_URL=http://localhost:3000
 
 ### Required
 - `PORT` - Server port (default: 5050)
-- `MONGODB_URI` or `MONGO_URI` - MongoDB connection string (default: mongodb://localhost:27017/hotel_management)
+
 - `JWT_SECRET` - Secret key for JWT tokens (default: your-secret-key-change-this-in-production)
 
 ### Optional (with defaults)
@@ -58,7 +58,7 @@ The global config (`backend/src/config/globalConfig.ts`) automatically:
 **Your .env:**
 ```env
 PORT=5050
-MONGODB_URI=mongodb://localhost:27017/hotel_management
+
 JWT_SECRET=my-secret-key
 ```
 
@@ -74,7 +74,7 @@ JWT_SECRET=my-secret-key
 ```env
 PORT=5050
 NETWORK_IP=192.168.8.163
-MONGODB_URI=mongodb://localhost:27017/hotel_management
+
 JWT_SECRET=my-secret-key
 ```
 

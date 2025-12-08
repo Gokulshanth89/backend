@@ -1,22 +1,25 @@
 import express, { Request, Response } from 'express'
 import { body, query, validationResult } from 'express-validator'
 import { authenticate, authorize } from '../middleware/auth'
+import { enforceCompanyFilter } from '../middleware/companyFilter'
 import Rota from '../models/Rota'
 import { validateCompanyExists, validateEmployeeBelongsToCompany } from '../utils/companyValidation'
+import { extractCompanyId, extractEmployeeId } from '../utils/queryHelper'
 
 const router = express.Router()
 
-// Get rotas with optional filters
+// Get rotas with optional filters - automatically filtered by user's company
 router.get(
   '/',
   authenticate,
+  enforceCompanyFilter,
   [
     query('company').optional().isString(),
     query('employee').optional().isString(),
     query('from').optional().isISO8601(),
     query('to').optional().isISO8601(),
   ],
-  async (req: Request, res: Response) => {
+  async (req: any, res: Response) => {
     try {
       const errors = validationResult(req)
       if (!errors.isEmpty()) {
@@ -26,8 +29,30 @@ router.get(
       const { company, employee, from, to } = req.query
       const filter: any = {}
 
-      if (company) filter.company = company
-      if (employee) filter.employee = employee
+      // Company filtering - admin users without company can see all
+      const companyParam = company || req.userCompanyId
+      
+      if (companyParam) {
+        const companyId = extractCompanyId(companyParam as string)
+        if (companyId) {
+          filter.company = companyId
+          console.log(`Filtering rotas by company ID: ${companyId}`)
+        } else {
+          console.warn(`Invalid company parameter: ${companyParam}`)
+          return res.status(400).json({ message: 'Invalid company parameter' })
+        }
+      } else if (req.isAdmin) {
+        // Admin users without company can see all rotas
+        console.log(`Admin user - fetching all rotas`)
+      } else {
+        return res.status(403).json({ message: 'Company information not available' })
+      }
+      if (employee) {
+        const employeeId = extractEmployeeId(employee as string)
+        if (employeeId) {
+          filter.employee = employeeId
+        }
+      }
       if (from || to) {
         filter.date = {}
         if (from) filter.date.$gte = new Date(from as string)
@@ -39,8 +64,10 @@ router.get(
         .populate('company', 'name')
         .sort({ date: 1, 'employee.lastName': 1 })
 
+      console.log(`Fetched ${rotas.length} rotas with filter:`, filter)
       res.json(rotas)
     } catch (error: any) {
+      console.error('Error fetching rotas:', error)
       res.status(500).json({ message: 'Server error', error: error.message })
     }
   }

@@ -1,19 +1,51 @@
 import express, { Request, Response } from 'express'
 import { body, validationResult } from 'express-validator'
 import { authenticate, authorize } from '../middleware/auth'
+import { enforceCompanyFilter } from '../middleware/companyFilter'
 import Service from '../models/Service'
 import { validateCompanyExists } from '../utils/companyValidation'
+import { extractCompanyId } from '../utils/queryHelper'
 
 const router = express.Router()
 
-// Get all services
-router.get('/', authenticate, async (req: Request, res: Response) => {
+// Get all services - automatically filtered by user's company
+router.get('/', authenticate, enforceCompanyFilter, async (req: any, res: Response) => {
   try {
-    const services = await Service.find()
+    const { company } = req.query
+    const filter: any = {}
+
+    // Company filtering - admin users without company can see all
+    const companyParam = company || req.userCompanyId
+    
+    if (companyParam) {
+      const companyId = extractCompanyId(companyParam as string)
+      if (companyId) {
+        filter.company = companyId
+        console.log(`Filtering services by company ID: ${companyId}`)
+      } else {
+        console.warn(`Invalid company parameter: ${companyParam}`)
+        return res.status(400).json({ message: 'Invalid company parameter' })
+      }
+    } else if (req.isAdmin) {
+      // Admin users without company can see all services
+      console.log(`Admin user - fetching all services`)
+    } else {
+      if (req.userCompanyId) {
+        filter.company = req.userCompanyId
+        console.log(`Using user's company ID from middleware: ${req.userCompanyId}`)
+      } else {
+        return res.status(403).json({ message: 'Company information not available' })
+      }
+    }
+
+    const services = await Service.find(filter)
       .populate('company', 'name')
       .sort({ createdAt: -1 })
+    
+    console.log(`Fetched ${services.length} services with filter:`, filter)
     res.json(services)
   } catch (error: any) {
+    console.error('Error fetching services:', error)
     res.status(500).json({ message: 'Server error', error: error.message })
   }
 })
@@ -31,11 +63,11 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
   }
 })
 
-// Create service
+// Create service - allow all authenticated users (mobile employees can create)
 router.post(
   '/',
   authenticate,
-  authorize('admin', 'manager'),
+  enforceCompanyFilter,
   [
     body('name').notEmpty().trim(),
     body('description').notEmpty().trim(),
@@ -66,11 +98,11 @@ router.post(
   }
 )
 
-// Update service
+// Update service - allow all authenticated users (mobile employees can update)
 router.put(
   '/:id',
   authenticate,
-  authorize('admin', 'manager'),
+  enforceCompanyFilter,
   async (req: Request, res: Response) => {
     try {
       // Validate company exists if company is being updated
@@ -96,8 +128,8 @@ router.put(
   }
 )
 
-// Delete service
-router.delete('/:id', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+// Delete service - allow all authenticated users (mobile employees can delete)
+router.delete('/:id', authenticate, enforceCompanyFilter, async (req: Request, res: Response) => {
   try {
     const service = await Service.findByIdAndDelete(req.params.id)
     if (!service) {

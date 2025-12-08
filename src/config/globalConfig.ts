@@ -32,7 +32,8 @@ export const globalConfig: GlobalConfig = {
   apiURL: process.env.API_URL || `http://${networkIP}:${port}`,
   socketURL: process.env.SOCKET_URL || `http://${networkIP}:${port}`,
   // Support both MONGODB_URI and MONGO_URI for compatibility
-  mongodbURI: process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/hotel_management',
+  // Must be set in environment variables - no default value
+  mongodbURI: process.env.MONGODB_URI || process.env.MONGO_URI || '',
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-this-in-production',
   nodeEnv: process.env.NODE_ENV || 'development',
 }
@@ -51,7 +52,7 @@ export const getSocketURL = (): string => {
 export const getServerAddresses = (): string[] => {
   return [
     `http://localhost:${globalConfig.port}`,
-    `http://127.0.0.1:${globalConfig.port}`,
+    `http://192.168.8.163:${globalConfig.port}`,
     `http://${globalConfig.networkIP}:${globalConfig.port}`,
   ]
 }

@@ -2,18 +2,41 @@ import express, { Request, Response } from 'express'
 import { body, validationResult } from 'express-validator'
 import Food from '../models/Food'
 import { authenticate, authorize } from '../middleware/auth'
+import { enforceCompanyFilter } from '../middleware/companyFilter'
+import { extractCompanyId } from '../utils/queryHelper'
 
 const router = express.Router()
 
-// Get all food items (optionally filtered by company)
-router.get('/', authenticate, async (req: Request, res: Response) => {
+// Get all food items - automatically filtered by user's company
+router.get('/', authenticate, enforceCompanyFilter, async (req: any, res: Response) => {
   try {
     const { company, category, isAvailable } = req.query
     const filter: any = {}
 
-    if (company) {
-      filter.company = company
+    // Company filtering - admin users without company can see all
+    const companyParam = company || req.userCompanyId
+    
+    if (companyParam) {
+      const companyId = extractCompanyId(companyParam as string)
+      if (companyId) {
+        filter.company = companyId
+        console.log(`Filtering foods by company ID: ${companyId}`)
+      } else {
+        console.warn(`Invalid company parameter: ${companyParam}`)
+        return res.status(400).json({ message: 'Invalid company parameter' })
+      }
+    } else if (req.isAdmin) {
+      // Admin users without company can see all foods
+      console.log(`Admin user - fetching all foods`)
+    } else {
+      if (req.userCompanyId) {
+        filter.company = req.userCompanyId
+        console.log(`Using user's company ID from middleware: ${req.userCompanyId}`)
+      } else {
+        return res.status(403).json({ message: 'Company information not available' })
+      }
     }
+    
     if (category) {
       filter.category = category
     }
@@ -25,8 +48,10 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       .populate('company', 'name')
       .sort({ category: 1, name: 1 })
 
+    console.log(`Fetched ${foods.length} foods with filter:`, filter)
     res.json(foods)
   } catch (error: any) {
+    console.error('Error fetching foods:', error)
     res.status(500).json({ message: 'Server error', error: error.message })
   }
 })

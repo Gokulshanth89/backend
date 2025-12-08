@@ -10,7 +10,7 @@ Your `.env` file can have just these essential variables:
 
 ```env
 PORT=5050
-MONGODB_URI=mongodb://localhost:27017/hotel_management
+
 JWT_SECRET=your-secret-key-change-this-in-production
 NODE_ENV=development
 ```
@@ -32,7 +32,7 @@ If you want to access from other devices, just add **one line**:
 ```env
 PORT=5050
 NETWORK_IP=192.168.8.163
-MONGODB_URI=mongodb://localhost:27017/hotel_management
+
 JWT_SECRET=your-secret-key-change-this-in-production
 NODE_ENV=development
 ```
@@ -54,7 +54,7 @@ The global config supports **both** variable names for MongoDB:
 |----------|--------------|-----------|
 | `PORT` | `5050` | No (has default) |
 | `NETWORK_IP` | `localhost` | No (has default) |
-| `MONGODB_URI` | `mongodb://localhost:27017/hotel_management` | No (has default) |
+
 | `JWT_SECRET` | `your-secret-key-change-this-in-production` | No (has default) |
 | `NODE_ENV` | `development` | No (has default) |
 | `FRONTEND_URL` | `http://localhost:3000` | No (has default) |

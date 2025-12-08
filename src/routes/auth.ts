@@ -41,6 +41,9 @@ router.post(
 
       await user.save()
 
+      // Populate company if exists
+      await user.populate('company', 'name')
+
       // Generate JWT
       const token = jwt.sign(
         { id: user._id, email: user.email, role: user.role, type: 'user' },
@@ -56,6 +59,8 @@ router.post(
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
+          company: user.company ? (typeof user.company === 'object' ? user.company._id : user.company) : null,
+          companyName: user.company && typeof user.company === 'object' ? user.company.name : null,
         },
       })
     } catch (error: any) {
@@ -98,6 +103,9 @@ router.post(
         return res.status(401).json({ message: 'Account is deactivated' })
       }
 
+      // Populate company if exists
+      await user.populate('company', 'name')
+
       // Generate JWT
       const token = jwt.sign(
         { id: user._id, email: user.email, role: user.role, type: 'user' },
@@ -113,6 +121,8 @@ router.post(
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
+          company: user.company ? (typeof user.company === 'object' ? user.company._id : user.company) : null,
+          companyName: user.company && typeof user.company === 'object' ? user.company.name : null,
         },
       })
     } catch (error: any) {

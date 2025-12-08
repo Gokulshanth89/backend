@@ -142,21 +142,46 @@ router.post(
         }
       )
 
-      // Get company name
-      const companyName = (employee.company as any)?.name || null
-      const companyId = employee.company?.toString() || employee.company
+      // Get company name and ID properly
+      let companyName = null
+      let companyId: string | null = null
+      
+      if (employee.company) {
+        // Handle populated company object
+        if (typeof employee.company === 'object' && employee.company !== null) {
+          companyName = (employee.company as any)?.name || null
+          // Extract ID from ObjectId or string
+          const companyObj = employee.company as any
+          companyId = companyObj._id?.toString() || companyObj.id?.toString() || companyObj.toString()
+        } else {
+          // Handle company as string ID
+          companyId = employee.company.toString()
+        }
+      }
+
+      // Ensure companyId is always a string (not null)
+      if (!companyId) {
+        console.error('Employee has no company assigned:', employee.email)
+        return res.status(400).json({ message: 'Employee is not assigned to a company. Please contact administrator.' })
+      }
+
+      console.log('Login successful for employee:', employee.email, 'Company ID:', companyId)
 
       res.json({
-        token,
-        employee: {
-          id: employee._id,
-          email: employee.email,
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          role: employee.role,
-          department: employee.department,
-          company: companyId,
-          companyName: companyName,
+        success: true,
+        data: {
+          token,
+          employee: {
+            _id: employee._id,
+            id: employee._id,
+            email: employee.email,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            role: employee.role,
+            department: employee.department,
+            company: companyId, // Always return just the ID string
+            companyName: companyName,
+          },
         },
         message: 'Login successful',
       })

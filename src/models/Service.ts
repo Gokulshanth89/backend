@@ -6,6 +6,7 @@ export interface IService extends Document {
   category: string
   status: 'active' | 'inactive' | 'pending'
   company: mongoose.Types.ObjectId
+  roomNumber?: string // Optional room number for room-specific services
   createdAt: Date
   updatedAt: Date
 }
@@ -33,6 +34,10 @@ const ServiceSchema = new Schema<IService>(
       type: Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
+    },
+    roomNumber: {
+      type: String,
+      required: false,
     },
   },
   {

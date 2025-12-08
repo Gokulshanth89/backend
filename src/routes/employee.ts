@@ -2,20 +2,51 @@ import express, { Request, Response } from 'express'
 import { body, validationResult } from 'express-validator'
 import mongoose from 'mongoose'
 import { authenticate, authorize } from '../middleware/auth'
+import { enforceCompanyFilter } from '../middleware/companyFilter'
 import Employee from '../models/Employee'
 import { sendWelcomeEmail } from '../utils/emailService'
 import { validateCompanyExists } from '../utils/companyValidation'
+import { extractCompanyId } from '../utils/queryHelper'
 
 const router = express.Router()
 
-// Get all employees
-router.get('/', authenticate, async (req: Request, res: Response) => {
+// Get all employees - automatically filtered by user's company
+router.get('/', authenticate, enforceCompanyFilter, async (req: any, res: Response) => {
   try {
-    const employees = await Employee.find({ isActive: true })
+    const { company } = req.query
+    const filter: any = { isActive: true }
+    
+    // Company filtering - admin users without company can see all
+    if (company) {
+      const companyId = extractCompanyId(company as string)
+      if (companyId) {
+        filter.company = companyId
+        console.log(`Filtering employees by company ID: ${companyId}`)
+      } else {
+        console.warn(`Invalid company parameter: ${company}`)
+        return res.status(400).json({ message: 'Invalid company parameter' })
+      }
+    } else {
+      // Use user's company from middleware (if available)
+      if (req.userCompanyId) {
+        filter.company = req.userCompanyId
+        console.log(`Using user's company ID from middleware: ${req.userCompanyId}`)
+      } else if (req.isAdmin) {
+        // Admin users without company can see all employees
+        console.log(`Admin user - fetching all employees`)
+      } else {
+        return res.status(403).json({ message: 'Company information not available' })
+      }
+    }
+    
+    const employees = await Employee.find(filter)
       .populate('company', 'name')
       .sort({ createdAt: -1 })
+    
+    console.log(`Fetched ${employees.length} employees with filter:`, filter)
     res.json(employees)
   } catch (error: any) {
+    console.error('Error fetching employees:', error)
     res.status(500).json({ message: 'Server error', error: error.message })
   }
 })
